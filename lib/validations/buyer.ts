@@ -13,7 +13,6 @@ export const createBuyerSchema = z.object({
   budget_max: z.coerce.number().min(0).optional().nullable(),
   notes: z.string().max(5000).optional().nullable(),
   status: z.string().max(100).optional().nullable(),
-  buyer_email: z.string().email().optional().nullable().or(z.literal("")),
   locations: z.array(locationSchema).min(0).max(50).optional().default([]),
 });
 

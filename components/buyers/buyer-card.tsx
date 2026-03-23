@@ -13,7 +13,6 @@ export function BuyerCard({ buyer, onEdit }: Props) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const cities = [...new Set((buyer.buyer_target_locations ?? []).map((l) => l.city).filter(Boolean))];
-  const neighborhoods = [...new Set((buyer.buyer_target_locations ?? []).map((l) => l.neighborhood).filter(Boolean))];
 
   async function handleDelete(e: React.MouseEvent) {
     e.preventDefault();
@@ -64,16 +63,6 @@ export function BuyerCard({ buyer, onEdit }: Props) {
           )) : <span className="text-sm text-gray-400">—</span>}
         </div>
       </div>
-      {neighborhoods.length > 0 && (
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Neighborhoods</p>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            {neighborhoods.map((n) => (
-              <span key={n} className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-slate-700 dark:text-slate-200">{n}</span>
-            ))}
-          </div>
-        </div>
-      )}
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Budget Max</p>
         <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -84,12 +73,6 @@ export function BuyerCard({ buyer, onEdit }: Props) {
         <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Notes</p>
         <p className="mt-0.5 line-clamp-2 text-sm text-gray-600 dark:text-gray-400">{buyer.notes || "—"}</p>
       </div>
-      {buyer.buyer_email && (
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Buyer Email</p>
-          <p className="mt-0.5 truncate text-sm text-gray-900 dark:text-gray-100">{buyer.buyer_email}</p>
-        </div>
-      )}
     </article>
   );
 }

@@ -8,6 +8,10 @@ import { createBuyerSchema, updateBuyerSchema, type CreateBuyerInput, type Updat
 import { revalidatePath } from "next/cache";
 
 type Result = { success: true; id?: string } | { success: false; error: string };
+export type BuyerCityMatch = BuyerWithLocations & {
+  recipient_email: string | null;
+  recipient_name: string | null;
+};
 
 function resolveAgentId(agentId: string | undefined, currentAgentId: string | null): string | null {
   if (agentId) return agentId;
@@ -38,7 +42,7 @@ export async function createBuyer(formData: CreateBuyerInput): Promise<Result> {
       budget_max: parsed.data.budget_max ?? null,
       notes: parsed.data.notes ?? null,
       status: parsed.data.status ?? null,
-      buyer_email: parsed.data.buyer_email || null,
+      buyer_email: null,
     })
     .select("id")
     .single();
@@ -76,7 +80,7 @@ export async function updateBuyer(id: string, formData: UpdateBuyerInput): Promi
   if (parsed.data.budget_max !== undefined) updates.budget_max = parsed.data.budget_max;
   if (parsed.data.notes !== undefined) updates.notes = parsed.data.notes;
   if (parsed.data.status !== undefined) updates.status = parsed.data.status;
-  if (parsed.data.buyer_email !== undefined) updates.buyer_email = parsed.data.buyer_email || null;
+  updates.buyer_email = null;
 
   let q = supabase.from("buyers").update(updates).eq("id", id);
   if (!admin && agent) q = q.eq("agent_id", agent.id);
@@ -123,7 +127,7 @@ export async function deleteBuyer(id: string): Promise<Result> {
  * (case-insensitive). Uses multiple candidates so "Tarzana, California, United States" still matches
  * buyers with city "Tarzana". Also matches if the user stored the name in neighborhood.
  */
-export async function getBuyersMatchingCity(cityOrPlaceName: string): Promise<BuyerWithLocations[]> {
+export async function getBuyersMatchingCity(cityOrPlaceName: string): Promise<BuyerCityMatch[]> {
   const raw = cityOrPlaceName?.trim();
   if (!raw) return [];
   const candidates = new Set<string>();
@@ -132,7 +136,7 @@ export async function getBuyersMatchingCity(cityOrPlaceName: string): Promise<Bu
   if (firstSegment) candidates.add(firstSegment);
 
   const buyers = await getBuyers({});
-  return buyers.filter((b) =>
+  const matched = buyers.filter((b) =>
     (b.buyer_target_locations ?? []).some((l) => {
       const locCity = (l.city ?? "").trim().toLowerCase();
       const locNeighborhood = (l.neighborhood ?? "").trim().toLowerCase();
@@ -143,6 +147,25 @@ export async function getBuyersMatchingCity(cityOrPlaceName: string): Promise<Bu
       return false;
     })
   );
+
+  if (matched.length === 0) return [];
+
+  const agentIds = [...new Set(matched.map((b) => b.agent_id).filter(Boolean))];
+  const supabase = await createClient();
+  const { data: agentRows } = await supabase
+    .from("agents")
+    .select("id, email, display_name")
+    .in("id", agentIds);
+  const byAgentId = new Map((agentRows ?? []).map((a) => [a.id, a]));
+
+  return matched.map((b) => {
+    const uploader = byAgentId.get(b.agent_id);
+    return {
+      ...b,
+      recipient_email: uploader?.email ?? null,
+      recipient_name: uploader?.display_name ?? uploader?.email ?? null,
+    };
+  });
 }
 
 /** Return city/neighborhood options for header Filter dropdown (Buyer Management). */

@@ -48,18 +48,15 @@ export function BuyerForm(props: Props) {
     budget_max: buyer?.budget_max != null ? Number(buyer.budget_max) : null,
     notes: buyer?.notes ?? "",
     status: buyer?.status ?? "",
-    buyer_email: buyer?.buyer_email ?? "",
     locations: buyer?.buyer_target_locations?.length
       ? buyer.buyer_target_locations.map((l) => ({
           city: l.city ?? "",
-          neighborhood: l.neighborhood ?? "",
-          zip_code: l.zip_code ?? "",
         }))
-      : [{ city: "", neighborhood: "", zip_code: "" }],
+      : [{ city: "" }],
   });
 
   function addLocation() {
-    setForm((f) => ({ ...f, locations: [...(f.locations ?? []), { city: "", neighborhood: "", zip_code: "" }] }));
+    setForm((f) => ({ ...f, locations: [...(f.locations ?? []), { city: "" }] }));
   }
 
   function removeLocation(i: number) {
@@ -140,16 +137,6 @@ export function BuyerForm(props: Props) {
         </div>
       </div>
       <div>
-        <label htmlFor="buyer_email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Buyer email</label>
-        <input
-          id="buyer_email"
-          type="email"
-          value={form.buyer_email ?? ""}
-          onChange={(e) => setForm((f) => ({ ...f, buyer_email: e.target.value || null }))}
-          className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-        />
-      </div>
-      <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
         <textarea
           value={form.notes ?? ""}
@@ -160,7 +147,7 @@ export function BuyerForm(props: Props) {
       </div>
       <div>
         <div className="flex items-center justify-between">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Target locations (city / neighborhood / zip)</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Target cities</label>
           <button type="button" onClick={addLocation} className="text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200">+ Add</button>
         </div>
         <div className="mt-2 space-y-2">
@@ -175,26 +162,6 @@ export function BuyerForm(props: Props) {
                   return { ...f, locations: locs };
                 })}
                 className="flex-1 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              />
-              <input
-                placeholder="Neighborhood"
-                value={loc.neighborhood ?? ""}
-                onChange={(e) => setForm((f) => {
-                  const locs = [...(f.locations ?? [])];
-                  locs[i] = { ...locs[i], neighborhood: e.target.value };
-                  return { ...f, locations: locs };
-                })}
-                className="flex-1 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              />
-              <input
-                placeholder="ZIP"
-                value={loc.zip_code ?? ""}
-                onChange={(e) => setForm((f) => {
-                  const locs = [...(f.locations ?? [])];
-                  locs[i] = { ...locs[i], zip_code: e.target.value };
-                  return { ...f, locations: locs };
-                })}
-                className="w-24 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               />
               <button type="button" onClick={() => removeLocation(i)} className="text-red-600 hover:text-red-700 dark:text-red-400">×</button>
             </div>

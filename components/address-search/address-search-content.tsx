@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { mapboxGeocode } from "@/lib/mapbox-geocode";
 import { getBuyersMatchingCity } from "@/app/actions/buyers";
+import type { BuyerCityMatch } from "@/app/actions/buyers";
 import { createPropertySearch } from "@/app/actions/properties";
 import { MapboxMap } from "@/components/map/mapbox-map";
 import { EmailMatchForm } from "@/components/address-search/email-match-form";
-import type { BuyerWithLocations } from "@/lib/db/queries";
 
 type AgentOption = { id: string; display_name: string | null; email: string };
 
@@ -21,7 +21,7 @@ export function AddressSearchContent({ agents }: Props) {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [geoResult, setGeoResult] = useState<{ lat: number; lng: number; place_name: string; city: string | null } | null>(null);
-  const [matchingBuyers, setMatchingBuyers] = useState<BuyerWithLocations[]>([]);
+  const [matchingBuyers, setMatchingBuyers] = useState<BuyerCityMatch[]>([]);
   /** Shared property_searches row for this map result (created on first send-email). */
   const [propertySearchId, setPropertySearchId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
@@ -166,8 +166,8 @@ export function AddressSearchContent({ agents }: Props) {
                       <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{buyer.buyer_name}</span>
                       <EmailMatchForm
                         buyerId={buyer.id}
-                        buyerName={buyer.buyer_name}
-                        recipientEmail={buyer.buyer_email ?? ""}
+                        buyerName={buyer.recipient_name ?? buyer.buyer_name}
+                        recipientEmail={buyer.recipient_email ?? ""}
                         propertyAddress={query.trim() || geoResult.place_name}
                         ensurePropertyId={ensurePropertyIdForEmail}
                       />
