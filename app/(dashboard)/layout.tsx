@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { getCurrentUser, isAdmin } from "@/lib/auth";
@@ -12,7 +13,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <div className="flex min-h-screen">
       <Sidebar userEmail={user.email ?? undefined} userName={user.user_metadata?.full_name ?? user.email ?? undefined} isAdmin={admin} />
       <div className="flex flex-1 flex-col bg-white dark:bg-[#1a1a1a]">
-        <Header />
+        <Suspense fallback={<header className="h-14 border-b border-gray-200 dark:border-gray-700" />}>
+          <Header />
+        </Suspense>
         <main className="flex-1 p-6">{children}</main>
       </div>
     </div>

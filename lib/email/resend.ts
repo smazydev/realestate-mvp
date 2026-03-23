@@ -1,10 +1,16 @@
+import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { getOrCreateCurrentAgent } from "@/lib/auth";
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM = process.env.RESEND_FROM ?? "onboarding@resend.dev";
 
 export type SendResult = { success: true; messageId?: string } | { success: false; error: string };
+
+function getResend(): Resend | null {
+  const key = process.env.RESEND_API_KEY?.trim();
+  if (!key) return null;
+  return new Resend(key);
+}
 
 export async function sendAndLogEmail(params: {
   to: string;
@@ -16,31 +22,26 @@ export async function sendAndLogEmail(params: {
   const agent = await getOrCreateCurrentAgent();
   if (!agent) return { success: false, error: "Not authenticated" };
 
-  if (!RESEND_API_KEY) return { success: false, error: "Email not configured (RESEND_API_KEY)" };
+  const resend = getResend();
+  if (!resend) return { success: false, error: "Email not configured (RESEND_API_KEY)" };
 
   let providerMessageId: string | null = null;
   let status = "sent";
 
+  const html = params.body.replace(/\n/g, "<br/>");
+
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: RESEND_FROM,
-        to: [params.to],
-        subject: params.subject,
-        html: params.body.replace(/\n/g, "<br/>"),
-      }),
+    const { data, error } = await resend.emails.send({
+      from: RESEND_FROM,
+      to: params.to,
+      subject: params.subject,
+      html,
     });
 
-    const data = (await res.json()) as { id?: string; message?: string };
-    if (!res.ok) {
+    if (error) {
       status = "failed";
       await logEmail({ ...params, recipient_email: params.to, status, providerMessageId: null });
-      return { success: false, error: data?.message ?? res.statusText };
+      return { success: false, error: error.message ?? "Resend send failed" };
     }
     providerMessageId = data?.id ?? null;
   } catch (e) {

@@ -2,6 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getOrCreateCurrentAgent, isAdmin } from "@/lib/auth";
+import { getBuyers } from "@/lib/db/queries";
+import type { BuyerWithLocations } from "@/lib/db/queries";
 import { createBuyerSchema, updateBuyerSchema, type CreateBuyerInput, type UpdateBuyerInput } from "@/lib/validations/buyer";
 import { revalidatePath } from "next/cache";
 
@@ -114,4 +116,37 @@ export async function deleteBuyer(id: string): Promise<Result> {
   revalidatePath("/buyers");
   revalidatePath("/admin");
   return { success: true };
+}
+
+/**
+ * Return buyers (for current agent) whose target city or neighborhood matches the geocoded place
+ * (case-insensitive). Uses multiple candidates so "Tarzana, California, United States" still matches
+ * buyers with city "Tarzana". Also matches if the user stored the name in neighborhood.
+ */
+export async function getBuyersMatchingCity(cityOrPlaceName: string): Promise<BuyerWithLocations[]> {
+  const raw = cityOrPlaceName?.trim();
+  if (!raw) return [];
+  const candidates = new Set<string>();
+  candidates.add(raw.toLowerCase());
+  const firstSegment = raw.split(",")[0]?.trim().toLowerCase();
+  if (firstSegment) candidates.add(firstSegment);
+
+  const buyers = await getBuyers({});
+  return buyers.filter((b) =>
+    (b.buyer_target_locations ?? []).some((l) => {
+      const locCity = (l.city ?? "").trim().toLowerCase();
+      const locNeighborhood = (l.neighborhood ?? "").trim().toLowerCase();
+      for (const c of candidates) {
+        if (!c) continue;
+        if (locCity === c || locNeighborhood === c) return true;
+      }
+      return false;
+    })
+  );
+}
+
+/** Return city/neighborhood options for header Filter dropdown (Buyer Management). */
+export async function getBuyerFilterOptions(): Promise<{ cities: string[]; neighborhoods: string[] }> {
+  const { getLocationFilterOptions } = await import("@/lib/db/queries");
+  return getLocationFilterOptions();
 }

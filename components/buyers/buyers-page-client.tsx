@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Breadcrumb } from "@/components/layout/breadcrumb";
 import { BuyerCard } from "@/components/buyers/buyer-card";
 import { BuyerFilters } from "@/components/buyers/buyer-filters";
@@ -18,9 +19,42 @@ type Props = {
   agents: AgentOption[];
 };
 
+function filterAndSortBuyers(buyers: BuyerWithLocations[], q: string, sort: string): BuyerWithLocations[] {
+  let list = buyers;
+  const query = q.trim().toLowerCase();
+  if (query) {
+    list = list.filter(
+      (b) =>
+        b.buyer_name.toLowerCase().includes(query) ||
+        (b.buyer_email ?? "").toLowerCase().includes(query)
+    );
+  }
+  switch (sort) {
+    case "newest":
+      list = [...list].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      break;
+    case "oldest":
+      list = [...list].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      break;
+    case "name_asc":
+      list = [...list].sort((a, b) => a.buyer_name.localeCompare(b.buyer_name));
+      break;
+    case "name_desc":
+      list = [...list].sort((a, b) => b.buyer_name.localeCompare(a.buyer_name));
+      break;
+    default:
+      break;
+  }
+  return list;
+}
+
 export function BuyersPageClient({ buyers, cities, neighborhoods, agents }: Props) {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editBuyer, setEditBuyer] = useState<BuyerWithLocations | null>(null);
+  const searchParams = useSearchParams();
+  const q = searchParams.get("q") ?? "";
+  const sort = searchParams.get("sort") ?? "";
+  const displayedBuyers = useMemo(() => filterAndSortBuyers(buyers, q, sort), [buyers, q, sort]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -40,20 +74,28 @@ export function BuyersPageClient({ buyers, cities, neighborhoods, agents }: Prop
       <Suspense fallback={null}>
         <BuyerFilters cities={cities} neighborhoods={neighborhoods} />
       </Suspense>
-      {buyers.length === 0 ? (
+      {displayedBuyers.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 py-12 text-center dark:border-gray-700 dark:bg-gray-900">
-          <p className="text-gray-600 dark:text-gray-400">No buyers yet.</p>
-          <button
-            type="button"
-            onClick={() => setAddModalOpen(true)}
-            className="mt-2 inline-block text-sm font-medium text-gray-900 underline dark:text-gray-200"
-          >
-            Add your first buyer
-          </button>
+          <p className="text-gray-600 dark:text-gray-400">
+            {buyers.length === 0 ? "No buyers yet." : "No buyers match your search or filters."}
+          </p>
+          {buyers.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => setAddModalOpen(true)}
+              className="mt-2 inline-block text-sm font-medium text-gray-900 underline dark:text-gray-200"
+            >
+              Add your first buyer
+            </button>
+          ) : (
+            <a href="/buyers" className="mt-2 inline-block text-sm font-medium text-gray-900 underline dark:text-gray-200">
+              Clear search and filters
+            </a>
+          )}
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-          {buyers.map((buyer) => (
+          {displayedBuyers.map((buyer) => (
             <BuyerCard key={buyer.id} buyer={buyer} onEdit={setEditBuyer} />
           ))}
         </div>

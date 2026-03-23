@@ -3,189 +3,200 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { mapboxGeocode } from "@/lib/mapbox-geocode";
+import { getBuyersMatchingCity } from "@/app/actions/buyers";
 import { createPropertySearch } from "@/app/actions/properties";
-import { geocodeAddress, extractCity, extractNeighborhood, extractZip } from "@/lib/geocode";
-import { SimpleMap } from "@/components/map/simple-map";
+import { MapboxMap } from "@/components/map/mapbox-map";
 import { EmailMatchForm } from "@/components/address-search/email-match-form";
-import type { PropertySearchRow } from "@/lib/db/types";
-import type { MatchWithBuyer } from "@/lib/db/queries";
+import type { BuyerWithLocations } from "@/lib/db/queries";
 
 type AgentOption = { id: string; display_name: string | null; email: string };
 
 type Props = {
-  initialProperty: PropertySearchRow | null;
-  initialMatches: MatchWithBuyer[];
   agents?: AgentOption[];
 };
 
-export function AddressSearchContent({ initialProperty, initialMatches, agents }: Props) {
+export function AddressSearchContent({ agents }: Props) {
   const router = useRouter();
-  const [address, setAddress] = useState(initialProperty?.raw_address ?? "");
-  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
-  const [geocoding, setGeocoding] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [geoResult, setGeoResult] = useState<{ lat: number; lng: number; city?: string | null; neighborhood?: string | null; zip?: string | null } | null>(
-    initialProperty?.lat != null && initialProperty?.lng != null
-      ? { lat: initialProperty.lat, lng: initialProperty.lng, city: initialProperty.city, neighborhood: initialProperty.neighborhood, zip: initialProperty.zip_code }
-      : null
-  );
-  const property = initialProperty;
-  const matches = initialMatches;
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [geoResult, setGeoResult] = useState<{ lat: number; lng: number; place_name: string; city: string | null } | null>(null);
+  const [matchingBuyers, setMatchingBuyers] = useState<BuyerWithLocations[]>([]);
+  /** Shared property_searches row for this map result (created on first send-email). */
+  const [propertySearchId, setPropertySearchId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
 
-  async function handleGeocode() {
-    if (!address.trim()) {
-      toast.error("Enter an address");
+  async function handleSearch() {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      toast.error("Enter an address or city");
       return;
     }
-    setGeocoding(true);
+    setSearching(true);
+    setGeoResult(null);
+    setMatchingBuyers([]);
+    setPropertySearchId(null);
     try {
-      const result = await geocodeAddress(address);
-      if (result) {
-        setGeoResult({
-          lat: result.lat,
-          lng: result.lng,
-          city: extractCity(result.address),
-          neighborhood: extractNeighborhood(result.address),
-          zip: extractZip(result.address),
-        });
-        toast.success("Address found");
-      } else {
-        toast.error("Could not geocode address");
+      const result = await mapboxGeocode(trimmed);
+      if (!result) {
+        toast.error("Could not find that location");
+        setSearching(false);
+        return;
       }
+      setGeoResult(result);
+      const matchLabel =
+        result.city?.trim() ||
+        result.place_name.split(",")[0]?.trim() ||
+        result.place_name;
+      const buyers = await getBuyersMatchingCity(matchLabel);
+      setMatchingBuyers(buyers);
     } catch {
-      toast.error("Geocoding failed");
+      toast.error("Search failed");
     }
-    setGeocoding(false);
+    setSearching(false);
   }
 
-  async function handleSave() {
-    if (!address.trim()) {
-      toast.error("Enter an address");
-      return;
-    }
-    setSaving(true);
+  function handleClear() {
+    setQuery("");
+    setGeoResult(null);
+    setMatchingBuyers([]);
+    setPropertySearchId(null);
+  }
+
+  /** Ensures a property_searches row exists for the current pin (for Resend logs + matching). */
+  async function ensurePropertyIdForEmail(): Promise<string | null> {
+    if (propertySearchId) return propertySearchId;
+    if (!geoResult) return null;
+    const rawAddress = query.trim() || geoResult.place_name;
     try {
       const result = await createPropertySearch({
         agent_id: agents?.length && selectedAgentId ? selectedAgentId : undefined,
-        raw_address: address.trim(),
-        city: geoResult?.city ?? null,
-        neighborhood: geoResult?.neighborhood ?? null,
-        zip_code: geoResult?.zip ?? null,
-        lat: geoResult?.lat ?? null,
-        lng: geoResult?.lng ?? null,
+        raw_address: rawAddress,
+        city: geoResult.city ?? null,
+        neighborhood: null,
+        zip_code: null,
+        lat: geoResult.lat,
+        lng: geoResult.lng,
       });
       if (result.success && result.id) {
-        toast.success("Property saved. Matches updated.");
-        router.push(`/address-search?id=${result.id}`);
+        setPropertySearchId(result.id);
         router.refresh();
-        return;
+        return result.id;
       }
-      if (!result.success) toast.error(result.error ?? "Failed to save");
+      toast.error(!result.success ? result.error : "Failed to save property");
+      return null;
     } catch {
-      toast.error("Failed to save");
+      toast.error("Failed to save property");
+      return null;
     }
-    setSaving(false);
   }
 
   const marker = geoResult ? ([geoResult.lat, geoResult.lng] as [number, number]) : null;
   const center = marker ?? ([34.0522, -118.2437] as [number, number]);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="relative flex min-h-[calc(100vh-8rem)] flex-col">
+      {/* Map - full area */}
+      <div className="absolute inset-0 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-800">
+        <MapboxMap center={center} zoom={marker ? 14 : 10} marker={marker} className="absolute inset-0 h-full w-full" />
+      </div>
+
+      {/* Search bar overlay - top center (Airtable style) */}
+      <div className="relative z-10 mx-auto mt-4 w-full max-w-xl px-4">
+        <div className="flex rounded-lg border border-gray-300 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-900">
+          <span className="flex items-center pl-4 text-gray-400" aria-hidden>
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </span>
+          <input
+            type="text"
+            placeholder="Search address or city..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            className="min-w-0 flex-1 bg-transparent py-3 px-3 text-gray-900 placeholder-gray-500 dark:text-gray-100 dark:placeholder-gray-400"
+            aria-label="Search address or city"
+          />
+          <button
+            type="button"
+            onClick={handleSearch}
+            disabled={searching}
+            className="flex items-center gap-1.5 rounded-r-lg bg-slate-700 px-4 py-3 text-sm font-medium text-white hover:bg-slate-600 disabled:opacity-50 dark:bg-slate-600"
+          >
+            {searching && (
+              <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden />
+            )}
+            {searching ? "Searching…" : "Search"}
+          </button>
+          {query && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="rounded-r-lg px-3 py-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+              aria-label="Clear"
+            >
+              <span className="text-lg leading-none">×</span>
+            </button>
+          )}
+        </div>
+
+        {/* Dropdown / message below search (like Airtable) */}
+        {geoResult && (
+          <div className="mt-1 rounded-lg border border-gray-200 bg-white p-3 shadow dark:border-gray-700 dark:bg-gray-900">
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{geoResult.place_name}</p>
+            {searching ? (
+              <p className="mt-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                <span
+                  className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-gray-400 border-t-transparent dark:border-gray-500"
+                  aria-hidden
+                />
+                <span>Checking buyers for this area…</span>
+              </p>
+            ) : matchingBuyers.length === 0 ? (
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">No buyers currently targeting this city.</p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                  {matchingBuyers.length} buyer{matchingBuyers.length !== 1 ? "s" : ""} targeting this city.
+                </p>
+                <ul className="mt-3 space-y-2">
+                  {matchingBuyers.map((buyer) => (
+                    <li key={buyer.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-gray-100 p-2 dark:border-gray-800">
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{buyer.buyer_name}</span>
+                      <EmailMatchForm
+                        buyerId={buyer.id}
+                        buyerName={buyer.buyer_name}
+                        recipientEmail={buyer.buyer_email ?? ""}
+                        propertyAddress={query.trim() || geoResult.place_name}
+                        ensurePropertyId={ensurePropertyIdForEmail}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Admin: assign agent (optional, bottom or collapsible) */}
       {agents && agents.length > 0 && (
-        <div>
-          <label htmlFor="address-agent" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Assign to agent *</label>
+        <div className="relative z-10 mt-auto p-4">
+          <label htmlFor="address-agent" className="sr-only">Assign to agent</label>
           <select
             id="address-agent"
-            required
             value={selectedAgentId}
             onChange={(e) => setSelectedAgentId(e.target.value)}
-            className="mt-1 block w-full max-w-xs rounded-md border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           >
-            <option value="">Select agent</option>
+            <option value="">Assign to agent (optional)</option>
             {agents.map((a) => (
-              <option key={a.id} value={a.id}>{a.display_name || a.email} ({a.email})</option>
+              <option key={a.id} value={a.id}>{a.display_name || a.email}</option>
             ))}
           </select>
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-1 min-w-[200px] rounded-lg border border-slate-600 bg-white shadow dark:border-slate-500 dark:bg-slate-800">
-          <input
-            type="text"
-            placeholder="Enter a property address..."
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            className="flex-1 bg-transparent py-3 pl-4 pr-2 text-gray-900 placeholder-gray-500 dark:text-gray-100 dark:placeholder-gray-400"
-            aria-label="Property address"
-          />
-          <button
-            type="button"
-            onClick={handleGeocode}
-            disabled={geocoding}
-            className="flex items-center gap-2 rounded-r-lg bg-slate-700 px-4 py-3 text-sm font-medium text-white hover:bg-slate-600 disabled:opacity-50 dark:bg-slate-600"
-          >
-            {geocoding && (
-              <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden />
-            )}
-            {geocoding ? "Searching…" : "Geocode"}
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-3 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
-        >
-          {saving && (
-            <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-gray-900 border-t-transparent dark:border-gray-100 dark:border-t-transparent" aria-hidden />
-          )}
-          {saving ? "Saving…" : "Save property & match"}
-        </button>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="overflow-hidden rounded-lg bg-slate-900">
-          <SimpleMap center={center} zoom={marker ? 14 : 10} marker={marker} className="h-[300px]" />
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Matching buyers</h2>
-          {property ? (
-            <>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                {matches.length} buyer{matches.length !== 1 ? "s" : ""} match this property.
-              </p>
-              {matches.length > 0 ? (
-                <ul className="mt-3 space-y-3">
-                  {matches.map((m) => (
-                    <li key={m.id} className="rounded border border-gray-100 dark:border-gray-800 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {(m.buyers as { buyer_name: string } | null)?.buyer_name ?? "—"}
-                        </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Score: {m.match_score ?? 0} — {(m.match_reasons as string[])?.join(", ") ?? ""}
-                        </span>
-                        <EmailMatchForm
-                          propertyId={property.id}
-                          buyerId={m.buyer_id}
-                          recipientEmail={(m.buyers as { buyer_email: string | null } | null)?.buyer_email ?? ""}
-                          buyerName={(m.buyers as { buyer_name: string } | null)?.buyer_name}
-                          propertyAddress={property.raw_address}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No buyers match this property’s location yet.</p>
-              )}
-            </>
-          ) : (
-            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Save a property to see matching buyers.</p>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getBuyers, getLocationFilterOptions } from "@/lib/db/queries";
 import { listAgents } from "@/app/actions/agents";
 import { isAdmin } from "@/lib/auth";
@@ -16,11 +17,13 @@ export default async function BuyersPage({ searchParams }: Props) {
   const agents = agentsList.map((a) => ({ id: a.id, display_name: a.display_name, email: a.email }));
 
   return (
-    <BuyersPageClient
-      buyers={buyers}
-      cities={options.cities}
-      neighborhoods={options.neighborhoods}
-      agents={agents}
-    />
+    <Suspense fallback={<div className="text-gray-500">Loading…</div>}>
+      <BuyersPageClient
+        buyers={buyers}
+        cities={options.cities}
+        neighborhoods={options.neighborhoods}
+        agents={agents}
+      />
+    </Suspense>
   );
 }
